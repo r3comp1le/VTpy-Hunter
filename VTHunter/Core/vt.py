@@ -28,6 +28,8 @@ except Exception as e:
 try:
     client = MongoClient(mongo_server, mongo_port)
     db = client[mongodb]
+    sample_collection = db.samples
+    stats_collection = db.stats
 except Exception as e:
     print "Error: " + str(e)
 
@@ -50,30 +52,28 @@ def pull_vt_feed():
 def vt_feed_to_mongo(data):
     # Create stats on rulenames
     # Check if alert ID already exist
-    
-    sample_collection = db.samples
-    stats_collection = db.stats
+
     id = data['id']
     sha1 = data['sha1']
     rulename = data['ruleset_name']
     
     # Duplicate check
     if sample_collection.find_one({"id" : id}):
-        pass
-        #if vt_del == True:
-            #delete_vt_alert(id)
+        if vt_del == True:
+            delete_vt_alert(id)
     else:
         # Process Stats
         if sample_collection.find_one({"ruleset_name" : rulename}):
             stats_collection.update({"rulename":rulename},{'$inc':{"count":1}})
         else:
-            stats_collection.insert({"rulename":rulename, "count" : 1})
+            stats_collection.insert({"rulename":rulename, "count":1})
             
         sample_collection.insert(data)
+        vt_mass_query(id,sha1)
+        
         if vt_del == True:
             delete_vt_alert(id)
         return True
-        
         
 def delete_vt_alert(id):
     # Delete Alert from VT
@@ -88,10 +88,25 @@ def delete_vt_alert(id):
     else:
         print "Deleted Alert: " + str(id)
         
-def vt_mass_query(hash):
+def vt_mass_query(id,hash):
     # Retrieve more VT data from Private API
-    url = "https://www.virustotal.com/vtapi/v2/file/report?allinfo=1&apikey=" + vt_mass + "&resource=" + hash
+    url = "https://www.virustotal.com/vtapi/v2/file/report?allinfo=1&apikey=" + vtkey_mass + "&resource=" + hash
     r = requests.get(url)
     thejson = r.json()
     
+    if sample_collection.find_one({"id":id}):
+        for key in thejson:
+            try:
+                if "\"." in thejson[key]:
+                    print thejson[key] 
+                    #theValue = thejson[key].replace("\".","\"_")
+                else:
+                    theValue = thejson[key]
+                sample_collection.update({"id":id},{"$set":{key:theValue}},upsert=True)
+            except Exception as e:
+                pass
+                print str(e)
+                
+    
 pull_vt_feed()
+#vt_mass_query(4943105168637952,"3446d7082d5dcbb62e2caaf9f684cc309931d2a0")
