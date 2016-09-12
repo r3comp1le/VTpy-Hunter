@@ -3,8 +3,15 @@ vtkey_intel: XXXX
 vt_intel: True
 vtkey_mass: XXX
 vt_mass: True
+vt_del: False
+file_download_directory: /tmp
 
 [MongoConfig]
 mongo_server: localhost
 mongo_port: 27017
 mongodb: vt
+
+[analysis_module_cuckoo]
+enabled: True
+module: cuckoo
+class: CuckooAnalysis

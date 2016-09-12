@@ -1,8 +1,11 @@
 import requests
 import json
+import importlib
+import os
 from pymongo import MongoClient
 from pymongo.son_manipulator import SONManipulator
 from configparser import SafeConfigParser
+
 
 class KeyTransform(SONManipulator):
     """Transforms keys going to database and restores them coming out.
@@ -63,107 +66,183 @@ class KeyTransform(SONManipulator):
                 son[key] = self.transform_outgoing(value, collection)
         return son
 
-config = SafeConfigParser()
-config.read('settings.ini')
 
-# Pull in config file values
-try:
-    # Server Config
-    mongo_server = config.get('MongoConfig', 'mongo_server')
-    mongo_port = config.getint('MongoConfig', 'mongo_port')
-    mongodb = config.get('MongoConfig', 'mongodb')
+class VTHunter(object):
 
-    # VT Config
-    vtkey_intel = config.get('VTConfig', 'vtkey_intel')
-    vt_intel = config.getboolean('VTConfig', 'vt_intel')
-    vtkey_mass = config.get('VTConfig', 'vtkey_mass')
-    vt_mass = config.getboolean('VTConfig', 'vt_mass')
-    vt_del = config.getboolean('VTConfig', 'vt_del')
+    def __init__(self):
+        self.config = SafeConfigParser()
+        self.config.read('settings.ini')
+        import pdb
+        pdb.set_trace()
 
-except Exception as e:
-    print("Error in Config File: " + str(e))
+        # Server Config
+        mongo_server = self.config.get('MongoConfig', 'mongo_server')
+        mongo_port = self.config.getint('MongoConfig', 'mongo_port')
+        mongodb = self.config.get('MongoConfig', 'mongodb')
 
-# Connect to Mongo
-try:
-    client = MongoClient(mongo_server, mongo_port)
-    db = client[mongodb]
-    db.add_son_manipulator(KeyTransform(".", "_dot_"))
-    sample_collection = db.samples
-    stats_collection = db.stats
-except Exception as e:
-    print("Error: " + str(e))
+        # VT Config
+        self.vtkey_intel = self.config.get('VTConfig', 'vtkey_intel')
+        self.vt_intel = self.config.getboolean('VTConfig', 'vt_intel')
+        self.vtkey_mass = self.config.get('VTConfig', 'vtkey_mass')
+        self.vt_mass = self.config.getboolean('VTConfig', 'vt_mass')
+        self.vt_del = self.config.getboolean('VTConfig', 'vt_del')
 
+        # File download self.config
+        self.vt_downloads = self.config.get('VTConfig',
+                                            'file_download_directory')
 
-def pull_vt_feed():
-    # Pull VT Json feed
-    url = "https://www.virustotal.com/intelligence/hunting/notifications-feed/?key=" + vtkey_intel
-    r = requests.get(url)
-    thejson = r.json()
-    count = 0
+        # Connect to Mongo
+        try:
+            self.client = MongoClient(mongo_server, mongo_port)
+            self.db = self.client[mongodb]
+            self.db.add_son_manipulator(KeyTransform(".", "_dot_"))
+            self.sample_collection = self.db.samples
+            self.stats_collection = self.db.stats
+        except Exception as e:
+            print("Error: " + str(e))
 
-    try:
-        for alert in thejson['notifications']:
-            if(vt_feed_to_mongo(alert)):
-                count +=1
-        print("Processed Alerts: " + str(count))
-    except Exception as e:
-        print("Error: " + str(e))
+    def pull_vt_feed(self):
+        # Pull VT Json feed
+        url = "https://www.virustotal.com/intelligence/hunting/notifications-feed/?key=" + self.vtkey_intel
+        r = requests.get(url)
+        thejson = r.json()
+        count = 0
 
-def vt_feed_to_mongo(data):
-    # Create stats on rulenames
-    # Check if alert ID already exist
+        try:
+            for alert in thejson['notifications']:
+                if(self.vt_feed_to_mongo(alert)):
+                    count += 1
+            print("Processed Alerts: " + str(count))
+        except Exception as e:
+            print("Error: " + str(e))
 
-    id = data['id']
-    sha1 = data['sha1']
-    rulename = data['ruleset_name']
+    def vt_feed_to_mongo(self, data):
+        # Create stats on rulenames
+        # Check if alert ID already exist
 
-    # Duplicate check
-    if sample_collection.find_one({"id" : id}):
-        if vt_del == True:
-            delete_vt_alert(id)
-    else:
-        # Process Stats
-        if sample_collection.find_one({"ruleset_name" : rulename}):
-            stats_collection.update({"rulename":rulename},{'$inc':{"count":1}})
+        id = data['id']
+        sha1 = data['sha1']
+        rulename = data['ruleset_name']
+
+        # Duplicate check
+        if self.sample_collection.find_one({"id" : id}):
+            if self.vt_del:
+                self.delete_vt_alert(id)
         else:
-            stats_collection.insert({"rulename":rulename, "count":1})
+            # Process Stats
+            if self.sample_collection.find_one({"ruleset_name" : rulename}):
+                self.stats_collection.update({"rulename":rulename},{'$inc':{"count":1}})
+            else:
+                self.stats_collection.insert({"rulename":rulename, "count":1})
 
-        sample_collection.insert(data)
-        vt_mass_query(id,sha1)
+            self.sample_collection.insert(data)
+            self.vt_mass_query(id, sha1)
 
-        if vt_del == True:
-            delete_vt_alert(id)
-        return True
+            if self.vt_del:
+                self.delete_vt_alert(id)
+            return True
 
-def delete_vt_alert(id):
-    # Delete Alert from VT
-    theID = [id]
-    url = "https://www.virustotal.com/intelligence/hunting/delete-notifications/programmatic/?key=" + vtkey_intel
-    headers = {'Content-type': 'application/json'}
-    r = requests.post(url, data=json.dumps(theID), headers=headers)
-    response = r.json()
-    data = response
-    if data['deleted'] != data['received']:
-        print("Could not delete: " + str(id))
-    else:
-        print("Deleted Alert: " + str(id))
+    def delete_vt_alert(self, id):
+        # Delete Alert from VT
+        theID = [id]
+        url = "https://www.virustotal.com/intelligence/hunting/delete-notifications/programmatic/?key=" + self.vtkey_intel
+        headers = {'Content-type': 'application/json'}
+        r = requests.post(url, data=json.dumps(theID), headers=headers)
+        response = r.json()
+        data = response
+        if data['deleted'] != data['received']:
+            print("Could not delete: " + str(id))
+        else:
+            print("Deleted Alert: " + str(id))
 
-def sanitize_json_for_mongo(j):
-    if len(j.keys()) == 0:
-        return j
+    def vt_mass_query(self, id, hash):
+        # Retrieve more VT data from Private API
+        url = "https://www.virustotal.com/vtapi/v2/file/report?allinfo=1&apikey=" + self.vtkey_intel + "&resource=" + hash
+        r = requests.get(url)
+        thejson = r.json()
+        for k in thejson.keys():
+            self.sample_collection.update(
+                { "id" : id },
+                { "$set" : { k : thejson[k] } },
+                upsert=True,
+                manipulate=True
+            )
 
-def vt_mass_query(id,hash):
-    # Retrieve more VT data from Private API
-    url = "https://www.virustotal.com/vtapi/v2/file/report?allinfo=1&apikey=" + vtkey_mass + "&resource=" + hash
-    r = requests.get(url)
-    thejson = r.json()
-    for k in thejson.keys():
-        sample_collection.update(
-            { "id" : id },
-            { "$set" : { k : thejson[k] } },
-            upsert=True,
-            manipulate=True
-        )
+    def load_analysis_modules(self):
+        '''
+        loads all the analysis modules that are enabled in the
+        self.configuration
 
-#pull_vt_feed()
-vt_mass_query(5850533070503936, "19a6e53ab4f20f52e52b25b3d4f1d8e10355e1e4dc672f23b4215462525c7adc")
+        :returns: list
+        '''
+        analysis_modules = []
+        for section in self.config:
+            if "analysis_module_" in section:
+                if not self.config.getboolean(section, "enabled"):
+                    continue
+
+                module_name = self.config.get(section, "module")
+                try:
+                    _module = importlib.import_module(module_name)
+                except Exception as e:
+                    print("Unable to import module {0}: {1}"
+                          .format(module_name, str(e)))
+                    continue
+
+                class_name = self.config.get(section, "class")
+                try:
+                    module_class = getattr(_module, class_name)
+                except Exception as e:
+                    print("Unable to load module class {0}: {1}"
+                          .format(module_class, str(e)))
+                    continue
+
+                try:
+                    analysis_module = module_class(str(section))
+                except Exception as e:
+                    print("Unable to load analysis module {0}: {1}"
+                          .format(section, str(e)))
+                    continue
+
+                analysis_modules.append(analysis_module)
+
+        return analysis_modules
+
+    def run_analysis(self, hash):
+        '''
+        Runs analysis modules on the given hash
+
+        :param hash: The hash of the file to download and run.
+        :type hash: str
+        '''
+        # Download the file first
+        import pdb
+        pdb.set_trace()
+        dl_path = os.path.join(self.vt_downloads, hash)
+        try:
+            print('Downloading hash {}'.format(hash))
+            params = {'hash': hash, 'apikey': self.vtkey_intel}
+            r = requests.get('https://www.virustotal.com/vtapi/v2/file/download',
+                             params=params)
+            if r.status_code == 200:
+                downloaded_file = r.content
+                if len(downloaded_file) > 0:
+                    # TODO: Could pull out the original filename from the
+                    # VT data and save the filename as that.
+                    fout = open(dl_path, 'wb')
+                    fout.write(downloaded_file)
+                    fout.close()
+            else:
+                print('Received status code {0} and message {1}'
+                      .format(r.status_code, r.content))
+                return False
+        except Exception as e:
+            print("Exception: {0}".format(e))
+            return False
+
+        modules = self.load_analysis_modules()
+        for m in modules:
+            m.analyze_sample(dl_path)
+
+
+
