@@ -1,0 +1,35 @@
+*.ini
+*.pyc
+*.swp
+*.swo
+
+__pycache__
+
+#PyCharm
+.idea/
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# virtualenv
+venv/
+ENV/
