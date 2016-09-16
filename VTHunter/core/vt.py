@@ -4,7 +4,8 @@ import importlib
 import os
 from pymongo import MongoClient
 from pymongo.son_manipulator import SONManipulator
-from configparser import SafeConfigParser
+from flask import current_app as app
+
 
 
 class KeyTransform(SONManipulator):
@@ -70,24 +71,21 @@ class KeyTransform(SONManipulator):
 class VTHunter(object):
 
     def __init__(self):
-        self.config = SafeConfigParser()
-        self.config.read('core/settings.ini')
-
         # Server Config
-        mongo_server = self.config.get('MongoConfig', 'mongo_server')
-        mongo_port = self.config.getint('MongoConfig', 'mongo_port')
-        mongodb = self.config.get('MongoConfig', 'mongodb')
+        mongo_server = app.cfg.get('MongoDb', 'hostr')
+        mongo_port = app.cfg.getint('MongoDb', 'port')
+        mongodb = app.cfg.get('MongoDb', 'db_name')
 
         # VT Config
-        self.vtkey_intel = self.config.get('VTConfig', 'vtkey_intel')
-        self.vt_intel = self.config.getboolean('VTConfig', 'vt_intel')
-        self.vtkey_mass = self.config.get('VTConfig', 'vtkey_mass')
-        self.vt_mass = self.config.getboolean('VTConfig', 'vt_mass')
-        self.vt_del = self.config.getboolean('VTConfig', 'vt_del')
+        self.vtkey_intel = app.cfg.get('VT', 'intel_key')
+        self.vt_intel = app.cfg.getboolean('VT', 'intel')
+        self.vtkey_mass = app.cfg.get('VT', 'mass_key')
+        self.vt_mass = app.cfg.getboolean('VT', 'mass')
+        self.vt_del = app.cfg.getboolean('VT', 'delete')
 
         # File download self.config
-        self.vt_downloads = self.config.get('VTConfig',
-                                            'file_download_directory')
+        self.vt_downloads = app.cfg.get('VT',
+                                            'file_directory')
 
         # Connect to Mongo
         try:
@@ -176,10 +174,10 @@ class VTHunter(object):
         analysis_modules = []
         for section in self.config:
             if "analysis_module_" in section:
-                if not self.config.getboolean(section, "enabled"):
+                if not app.cfg.getboolean(section, "enabled"):
                     continue
 
-                module_name = self.config.get(section, "module")
+                module_name = app.cfg.get(section, "module")
                 try:
                     _module = importlib.import_module("output.{}"
                                                       .format(module_name))
@@ -188,7 +186,7 @@ class VTHunter(object):
                           .format(module_name, str(e)))
                     continue
 
-                class_name = self.config.get(section, "class")
+                class_name = app.cfg.get(section, "class")
                 try:
                     module_class = getattr(_module, class_name)
                 except Exception as e:

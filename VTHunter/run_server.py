@@ -3,12 +3,13 @@ Created on September 15, 2016
 
 @author: compsecmonkey
 '''
+import logging
+from configparser import ConfigParser
 
 from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException, default_exceptions
 
 from core.logs import prepare_logger
-from config import Config
 
 from api.responses import prepare_200
 
@@ -41,15 +42,15 @@ def make_json_app(import_name, **kwargs):
 '''
 Begin App Building
 '''
-# Load Config
-config = Config()
-
 # build the app
 app = make_json_app(__name__)
-app.config.from_object(config)
+
+# Load Config
+app.cfg = ConfigParser()
+app.cfg.read('vt_hunter.cfg')
 
 # logging
-logger = prepare_logger(app.config['LOGGING_PATH'], app.config['LOGGING_LEVEL'])
+logger = prepare_logger(app.cfg.get('Global', 'logging_path'), logging.INFO)
 app.logger.addHandler(logger)
 
 
@@ -64,4 +65,5 @@ def hello_dog():
 
 
 if __name__ == '__main__':
-    app.run(debug=app.config['DEBUG_MODE'], port=app.config['API_PORT'])
+    app.run(debug=app.cfg.getboolean('Global', 'debug_mode'), port=app.cfg.getint(
+        'API', 'port'))
